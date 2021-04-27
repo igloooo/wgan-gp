@@ -6,21 +6,20 @@ An pytorch implementation of Paper "Improved Training of Wasserstein GANs".
 Python, NumPy, SciPy, Matplotlib
 A recent NVIDIA GPU
 
-**A latest master version of Pytorch**(after commit [Add high order grad support for Some operator (](https://github.com/pytorch/pytorch/commit/0ba20435ce09aa5771ab3aca02db58ba0606ea44)[#1507](https://github.com/pytorch/pytorch/pull/1507)[)](https://github.com/pytorch/pytorch/commit/0ba20435ce09aa5771ab3aca02db58ba0606ea44))
+**A latest master version of Pytorch**
 
 # Progress
 
 - [x] gan_toy.py : Toy datasets (8 Gaussians, 25 Gaussians, Swiss Roll).(**Finished** in 2017.5.8)
 
-- [x] gan_language.py : Character-level language model (**Running Results while Finished** in 2017.5.10 using **nn.Linear** instead of **nn.Conv1d** in Discriminator. Generator is using **nn.Conv1d**)
+- [x] gan_language.py : Character-level language model (Discriminator is using **nn.Conv1d**. Generator is using **nn.Conv1d**. **Finished** in 2017.6.23. Finished in 2017.6.27.)
 
-> Due to that `ConvBackward is not differentiable`, Problem is under solving. When the features are supported, i will change it back.
 
-- [x] gan_mnist.py : MNIST (**Running Results while Finished** in 2017.5.11 using **nn.Linear** instead of **nn.Conv1d** in Discriminator)
+- [x] gan_mnist.py : MNIST (**Running Results while Finished** in 2017.6.26. Discriminator is using **nn.Conv1d**. Generator is using **nn.Conv1d**.)
 
-- [ ] gan_64x64.py: 64x64 architectures(Due to time problem, this module will be delayed. **Looking forward to your pull request**)
+- [ ] gan_64x64.py: 64x64 architectures(**Looking forward to your pull request**)
 
-- [ ] gan_cifar.py: CIFAR-10(Due to time problem, this module will be delayed. **Looking forward to your pull request**)
+- [x] gan_cifar.py: CIFAR-10(**Great thanks to [robotcator](https://github.com/caogang/wgan-gp/pull/18)**)
 
 # Results
 
@@ -40,7 +39,7 @@ A recent NVIDIA GPU
 
   ![frame694](imgs/swissroll_frame694.jpg)
 
-- [Mnist Dataset](result/mnist/)
+- [Mnist Dataset](results/mnist/)
 
   Some Sample Result, you can refer to the [results/mnist/](results/mnist/) folder for **details**.
 
@@ -50,7 +49,43 @@ A recent NVIDIA GPU
 
   ![mnist_samples_91899](imgs/mnist_samples_92499.png)
 
+  ![mnist_samples_199999](imgs/mnist_samples_199999.png)
 
+- Billion Word Language Generation (Using CNN, character-level)
+
+  Some Sample Result after 8699 epochs which is detailed in [sample](imgs/lang_samples_8699.txt)
+
+  I haven't run enough epochs due to that this is very time-comsuming.
+
+  > He moved the mat all out clame t
+  >
+  > A fosts of shores forreuid he pe
+  >
+  > It whith Crouchy digcloued defor
+  >
+  > Pamreutol the rered in Car inson
+  >
+  > Nor op to the lecs ficomens o fe
+  >
+  > In is a " nored by of the ot can
+  >
+  > The onteon I dees this pirder , 
+  >
+  > It is Brobes aoracy of " medurn 
+  >
+  > Rame he reaariod to thim atreast
+  >
+  > The stinl who herth of the not t
+  >
+  > The witl is f ont UAy Y nalence 
+  >
+  > It a over , tose sho Leloch Cumm
+
+- [Cifar10 Dataset](results/cifar10/)
+
+  Some Sample Result, you can refer to the [results/cifar10/](results/cifar10/) folder for **details**.
+
+  ![mnist_samples_91899](imgs/cifar10_samples_80099.jpg)
 
 # Acknowledge
 
