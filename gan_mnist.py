@@ -257,3 +257,25 @@ for iteration in range(ITERS):
         lib.plot.flush()
 
     lib.plot.tick()
+
+    # save checkpoint every 100 iterations
+    if iteration%100 == 99:
+        checkpoint = {
+            'iteration': iteration,
+            'p_g': Generator.state_dict(),
+            'p_d': Discriminator.state_dict(),
+            'o_g': optimizerG.state_dict(),
+            'o_d': optimizerD.state_dict()
+        }
+        torch.save(checpoint, './checkpoints/cur.pth')
+    
+    # save checpoint without overwrite every 1000 iterations
+    if iteration%1000 == 999:
+        checkpoint = {
+            'iteration': iteration,
+            'p_g': Generator.state_dict(),
+            'p_d': Discriminator.state_dict(),
+            'o_g': optimizerG.state_dict(),
+            'o_d': optimizerD.state_dict()
+        }
+        torch.save(checpoint, './checkpoints/iteration{}.pth'.format(iteration))
