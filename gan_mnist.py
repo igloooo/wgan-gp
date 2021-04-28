@@ -19,6 +19,9 @@ import torch.autograd as autograd
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torchvision import datasets
+from torch.utils.data import DataLoader
+from torchvision.transforms import ToTensor
 
 torch.manual_seed(1)
 use_cuda = torch.cuda.is_available()
@@ -41,15 +44,15 @@ class Generator(nn.Module):
 
         preprocess = nn.Sequential(
             nn.Linear(128, 4*4*4*DIM),
-            nn.ReLU(True),
+            nn.ReLU(), # don't use inplace ReLU
         )
         block1 = nn.Sequential(
             nn.ConvTranspose2d(4*DIM, 2*DIM, 5),
-            nn.ReLU(True),
+            nn.ReLU(),
         )
         block2 = nn.Sequential(
             nn.ConvTranspose2d(2*DIM, DIM, 5),
-            nn.ReLU(True),
+            nn.ReLU(),
         )
         deconv_out = nn.ConvTranspose2d(DIM, 1, 8, stride=2)
 
@@ -81,17 +84,17 @@ class Discriminator(nn.Module):
         main = nn.Sequential(
             nn.Conv2d(1, DIM, 5, stride=2, padding=2),
             # nn.Linear(OUTPUT_DIM, 4*4*4*DIM),
-            nn.ReLU(True),
+            nn.ReLU(),
             nn.Conv2d(DIM, 2*DIM, 5, stride=2, padding=2),
             # nn.Linear(4*4*4*DIM, 4*4*4*DIM),
-            nn.ReLU(True),
+            nn.ReLU(),
             nn.Conv2d(2*DIM, 4*DIM, 5, stride=2, padding=2),
             # nn.Linear(4*4*4*DIM, 4*4*4*DIM),
-            nn.ReLU(True),
+            nn.ReLU(),
             # nn.Linear(4*4*4*DIM, 4*4*4*DIM),
-            # nn.LeakyReLU(True),
+            # nn.LeakyReLU(),
             # nn.Linear(4*4*4*DIM, 4*4*4*DIM),
-            # nn.LeakyReLU(True),
+            # nn.LeakyReLU(),
         )
         self.main = main
         self.output = nn.Linear(4*4*4*DIM, 1)
@@ -107,36 +110,28 @@ def generate_image(frame, netG):
     noise = torch.randn(BATCH_SIZE, 128)
     if use_cuda:
         noise = noise.cuda(gpu)
-    noisev = autograd.Variable(noise, volatile=True)
-    samples = netG(noisev)
+    samples = netG(noise)
     samples = samples.view(BATCH_SIZE, 28, 28)
     # print samples.size()
 
-    samples = samples.cpu().data.numpy()
+    samples = samples.cpu().numpy()
 
     lib.save_images.save_images(
         samples,
         'tmp/mnist/samples_{}.png'.format(frame)
     )
 
-# Dataset iterator
-train_gen, dev_gen, test_gen = lib.mnist.load(BATCH_SIZE, BATCH_SIZE)
-def inf_train_gen():
-    while True:
-        for images,targets in train_gen():
-            yield images
-
 def calc_gradient_penalty(netD, real_data, fake_data):
-    #print real_data.size()
+    #print(real_data.size())
     alpha = torch.rand(BATCH_SIZE, 1)
     alpha = alpha.expand(real_data.size())
     alpha = alpha.cuda(gpu) if use_cuda else alpha
 
     interpolates = alpha * real_data + ((1 - alpha) * fake_data)
+    interpolates.requires_grad_(True)
 
     if use_cuda:
         interpolates = interpolates.cuda(gpu)
-    interpolates = autograd.Variable(interpolates, requires_grad=True)
 
     disc_interpolates = netD(interpolates)
 
@@ -162,33 +157,54 @@ if use_cuda:
 optimizerD = optim.Adam(netD.parameters(), lr=1e-4, betas=(0.5, 0.9))
 optimizerG = optim.Adam(netG.parameters(), lr=1e-4, betas=(0.5, 0.9))
 
-one = torch.FloatTensor([1])
+one = torch.ones([])
 mone = one * -1
 if use_cuda:
     one = one.cuda(gpu)
     mone = mone.cuda(gpu)
 
-data = inf_train_gen()
+training_data = datasets.FashionMNIST(
+    'tmp/data',
+    train=True,
+    transform=ToTensor(),
+    download=True
+    )
+testing_data = datasets.FashionMNIST(
+    'tmp/data',
+    train=False,
+    transform=ToTensor(),
+    download=True
+)
+
+train_dataloader = DataLoader(training_data, BATCH_SIZE, shuffle=True)
+# testing data is for 
+test_dataloader = DataLoader(testing_data, 4*BATCH_SIZE, shuffle=True)
+
+train_iterator = iter(train_dataloader)
+test_iterator = iter(test_dataloader)
 
 for iteration in range(ITERS):
     start_time = time.time()
     ############################
     # (1) Update D network
     ###########################
-    for p in netD.parameters():  # reset requires_grad
-        p.requires_grad = True  # they are set to False below in netG update
-
+    netD.requires_grad_(True)
     for iter_d in range(CRITIC_ITERS):
-        _data = next(data)
-        real_data = torch.Tensor(_data)
+        try:
+            real_data = next(train_iterator)[0] # discard the label
+        except StopIteration:
+            #when data are used up, restart 
+            train_iterator = iter(train_dataloader)
+            real_data = next(train_iterator)[0]
         if use_cuda:
             real_data = real_data.cuda(gpu)
-        real_data_v = autograd.Variable(real_data)
+        # reshape to be consistent with G's output
+        real_data = real_data.view(-1, OUTPUT_DIM)
 
         netD.zero_grad()
 
         # train with real
-        D_real = netD(real_data_v)
+        D_real = netD(real_data)
         D_real = D_real.mean()
         # print D_real
         D_real.backward(mone)
@@ -197,58 +213,58 @@ for iteration in range(ITERS):
         noise = torch.randn(BATCH_SIZE, 128)
         if use_cuda:
             noise = noise.cuda(gpu)
-        noisev = autograd.Variable(noise, volatile=True)  # totally freeze netG
-        fake = autograd.Variable(netG(noisev).data)
-        inputv = fake
-        D_fake = netD(inputv)
+        fake_data = netG(noise).detach() ### .detach() is fucking important
+        D_fake = netD(fake_data)
         D_fake = D_fake.mean()
         D_fake.backward(one)
 
         # train with gradient penalty
-        gradient_penalty = calc_gradient_penalty(netD, real_data_v.data, fake.data)
-        gradient_penalty.backward()
+        gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data)
+        gradient_penalty.backward(retain_graph=False)
 
         D_cost = D_fake - D_real + gradient_penalty
-        Wasserstein_D = D_real - D_fake
+        est_w1 = D_real - D_fake
         optimizerD.step()
 
     ############################
     # (2) Update G network
     ###########################
-    for p in netD.parameters():
-        p.requires_grad = False  # to avoid computation
-    netG.zero_grad()
+    netD.requires_grad_(False)
 
+    netG.requires_grad_(True)
+    netG.zero_grad()
     noise = torch.randn(BATCH_SIZE, 128)
     if use_cuda:
         noise = noise.cuda(gpu)
-    noisev = autograd.Variable(noise)
-    fake = netG(noisev)
-    G = netD(fake)
+    fake_data = netG(noise)
+    G = netD(fake_data)
     G = G.mean()
     G.backward(mone)
     G_cost = -G
     optimizerG.step()
+    netG.requires_grad_(False)
 
     # Write logs and save samples
     lib.plot.plot('tmp/mnist/time', time.time() - start_time)
-    lib.plot.plot('tmp/mnist/train disc cost', D_cost.cpu().data.numpy())
-    lib.plot.plot('tmp/mnist/train gen cost', G_cost.cpu().data.numpy())
-    lib.plot.plot('tmp/mnist/wasserstein distance', Wasserstein_D.cpu().data.numpy())
+    lib.plot.plot('tmp/mnist/train disc cost', D_cost.detach().cpu().numpy())
+    lib.plot.plot('tmp/mnist/train gen cost', G_cost.detach().cpu().numpy())
+    lib.plot.plot('tmp/mnist/Estimated W1 Distance', est_w1.detach().cpu().numpy())
 
-    # Calculate dev loss and generate samples every 100 iters
+    # Calculate disc loss on true data and generate samples every 100 iters
     if iteration % 100 == 99:
-        dev_disc_costs = []
-        for images,_ in dev_gen():
-            imgs = torch.Tensor(images)
-            if use_cuda:
-                imgs = imgs.cuda(gpu)
-            imgs_v = autograd.Variable(imgs, volatile=True)
+        test_disc_costs = []
+        try:
+            imgs = next(test_iterator)[0]
+        except StopIteration:
+            test_iterator = iter(test_dataloader)
+            imgs = next(test_iterator)[0]
+        if use_cuda:
+            imgs = imgs.cuda(gpu)
 
-            D = netD(imgs_v)
-            _dev_disc_cost = -D.mean().cpu().data.numpy()
-            dev_disc_costs.append(_dev_disc_cost)
-        lib.plot.plot('tmp/mnist/dev disc cost', np.mean(dev_disc_costs))
+            D = netD(imgs)
+            _test_disc_cost = -D.mean().cpu().numpy()
+            test_disc_costs.append(_test_disc_cost)
+        lib.plot.plot('tmp/mnist/test disc cost', np.mean(test_disc_costs))
 
         generate_image(iteration, netG)
 
@@ -262,20 +278,20 @@ for iteration in range(ITERS):
     if iteration%100 == 99:
         checkpoint = {
             'iteration': iteration,
-            'p_g': Generator.state_dict(),
-            'p_d': Discriminator.state_dict(),
+            'p_g': netG.state_dict(),
+            'p_d': netD.state_dict(),
             'o_g': optimizerG.state_dict(),
             'o_d': optimizerD.state_dict()
         }
-        torch.save(checpoint, './checkpoints/cur.pth')
+        torch.save(checkpoint, 'tmp/mnist/checkpoints/cur.pth')
     
     # save checpoint without overwrite every 1000 iterations
     if iteration%1000 == 999:
         checkpoint = {
             'iteration': iteration,
-            'p_g': Generator.state_dict(),
-            'p_d': Discriminator.state_dict(),
+            'p_g': netG.state_dict(),
+            'p_d': netD.state_dict(),
             'o_g': optimizerG.state_dict(),
             'o_d': optimizerD.state_dict()
         }
-        torch.save(checpoint, './checkpoints/iteration{}.pth'.format(iteration))
+        torch.save(checkpoint, 'tmp/mnist/checkpoints/iteration{}.pth'.format(iteration))
