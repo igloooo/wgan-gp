@@ -43,10 +43,12 @@ class DataLogger:
 # set random seed
 torch.manual_seed(1)
 # hyper-parameters, experiment name and all the paths, dirs
-exp_name = 'mean'
+exp_name = 'norm'  ##########
+diff_only = False  ########
+print(exp_name, 'diff_only=', diff_only)
 cp_indices = list(range(999,33000,1000))
 gt_path = 'tmp/mnist/checkpoints/iteration42999.pth'
-dump_folder = 'simu_mnist42999'
+dump_folder = 'simu_mnist42999_ncritic10'
 
 plots_dir = '/'.join(['tmp', dump_folder, 'plots'])
 if not os.path.exists(plots_dir):
@@ -82,18 +84,40 @@ for cp_index in cp_indices:
     netG_cp.load_state_dict(cp_state)
     # compare parameters layerwise
     for k,v in netG_gt.state_dict().items():
+        if 'bias' in k:
+            continue
         v_ = netG_cp.state_dict()[k]
-        #alpha = torch.sum(v*v_) / torch.norm(v_)**2
-        #distance = torch.norm(v-alpha*v_) / v.numel()
-        #distance = torch.sum(v)/torch.norm(v) - torch.sum(v_)/torch.norm(v_)
-        #if 'weight' in k:
-        #    writer.add_scalars('weight_distance',{k: distance.cpu().numpy()}, cp_index)
-        #else:
-        #    writer.add_scalars('bias_distance', {k: distance.cpu().numpy()}, cp_index)
-        t_learned = torch.sum(v)/torch.numel(v)#/torch.norm(v)
-        t_gt = torch.sum(v_)/torch.numel(v_)#/torch.norm(v_)
+        # reshape conv kernel into 2d matrix
+        if len(v.size()) == 4:
+            v = v.permute((0,2,3,1))
+            v_ = v_.permute((0,2,3,1))
+            v = v.reshape((-1, v.shape[-1])) # (input_dim, output_dim)
+            v_ = v_.reshape((-1, v_.shape[-1]))
+        #======modify the folloiwng part when trying a different experiment======
+        normalized_v = v / torch.norm(v, dim=0, keepdim=True) # normalize the rows
+        normalized_v_ = v_ / torch.norm(v_, dim=0, keepdim=True)
+        sim_mat = torch.matmul(normalized_v_.T, normalized_v)
+        sim = torch.mean(torch.max(sim_mat, dim=1)[0])#torch.mean(torch.diag(sim_mat))
+        logger.add_scalar(k, sim)
+
+        # cos_sim = torch.sum(v*v_) / (torch.norm(v)*torch.norm(v_))
+        # logger.add_scalar(k, cos_sim)
+
+        # rel_diff = torch.norm(v-v_) / torch.norm(v_)
+        # logger.add_scalar(k, rel_diff)
+
+        # try:
+        #     t_learned = np.linalg.svd(v, compute_uv=False)[0] #torch.sum(v)/torch.numel(v)
+        #     t_gt = np.linalg.svd(v_, compute_uv=False)[0] #torch.sum(v_)/torch.numel(v_)
+        # except IndexError:
+        #     t_learned = 0
+        #     g_gt = 0
+
+        t_learned = torch.norm(v)
+        t_gt = torch.norm(v_)
         logger.add_scalar([k, 'learned'], t_learned)
         logger.add_scalar([k, 'gt'], t_gt)
+        #======================================================================
     logger.add_scalar('indices', cp_index)
     #print(time() - time1)
 
@@ -107,29 +131,44 @@ with open('/'.join([logger_dir, exp_name+'.pkl']), 'wb') as f:
 
 layer_names = [k for k in netG_gt.state_dict()]
 
-for k in layer_names:
-    if 'bias' not in k:
-    # only plot the weights
-        short_k = k.split('.')[0]
-        plt.plot(logger.get_scalars('indices'), logger.get_scalars([k, 'gt']), label='ground-truth')
-        plt.plot(logger.get_scalars('indices'), logger.get_scalars([k, 'learned']), label='learned')
-        plt.legend()
-        plt.title(exp_name+'_'+short_k)
-        plt.savefig('/'.join([plots_dir, exp_name+'_'+short_k+'.png']))
-        plt.close()
+if not diff_only:
+    for k in layer_names:
+        if 'bias' not in k:
+        # only plot the weights
+            short_k = k.split('.')[0]
+            plt.plot(logger.get_scalars('indices'), logger.get_scalars([k, 'gt']), label='ground-truth')
+            plt.plot(logger.get_scalars('indices'), logger.get_scalars([k, 'learned']), label='learned')
+            plt.legend()
+            plt.title(exp_name+'_'+short_k)
+            plt.savefig('/'.join([plots_dir, exp_name+'_'+short_k+'.png']))
+            plt.close()
 
-for k in layer_names:
-    if 'bias' not in k:
-    # only plot the weights
-        short_k = k.split('.')[0]
-        learned_scalars = logger.get_scalars([k, 'learned'])
-        gt_scalars = logger.get_scalars([k, 'gt'])
-        rel_diff = [(learned_scalars[i] - gt_scalars[i])/gt_scalars[i] for i in range(len(gt_scalars))]
-        plt.plot(
-            logger.get_scalars('indices'), 
-            rel_diff,
-            label=short_k)
-plt.legend()
-plt.title(exp_name+' (learned - gt) / gt')
-plt.savefig('/'.join([plots_dir, exp_name + '_rel_diff.png']))
-plt.close()
+    for k in layer_names:
+        if 'bias' not in k:
+        # only plot the weights
+            short_k = k.split('.')[0]
+            learned_scalars = logger.get_scalars([k, 'learned'])
+            gt_scalars = logger.get_scalars([k, 'gt'])
+            rel_diff = [(learned_scalars[i] - gt_scalars[i])/gt_scalars[i] for i in range(len(gt_scalars))]
+            plt.plot(
+                logger.get_scalars('indices'), 
+                rel_diff,
+                label=short_k)
+    plt.legend()
+    plt.title(exp_name+' (learned - gt) / gt')
+    plt.savefig('/'.join([plots_dir, exp_name + '_rel_diff.png']))
+    plt.close()
+else:
+    for k in layer_names:
+        if 'bias' not in k:
+            # only plot the weights
+            short_k = k.split('.')[0]
+            diff = logger.get_scalars(k)
+            plt.plot(
+                logger.get_scalars('indices'), 
+                diff,
+                label=short_k)
+    plt.legend()
+    plt.title(exp_name)
+    plt.savefig('/'.join([plots_dir, exp_name + '.png']))
+    plt.close()
