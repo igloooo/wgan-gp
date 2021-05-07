@@ -74,16 +74,48 @@ class Discriminator(nn.Module):
         out = self.output(out)
         return out.view(-1)
 
-def Dataset_from_GAN():
-    def __init__(self, netG, batch_size):
+class Dataset_from_GAN:
+    """
+    create the instance after netG has been moved to device
+    netG should not requires_grad
+
+    the dataset should also be saved to checkpoint
+    """
+    def __init__(self, netG, batch_size, n_data=60000):
         self.netG = netG
         self.batch_size = batch_size
 
-    def __iter__(self):
-        """
-        return a shape (batch_size, OUTPUT_DIM) tensor
-        """
+        self.cur = 0
+        self.n_data = n_data
         # get the device that netG is on
-        device = next(self.netG.parameters()).device
-        noise = torch.randn((self.batch_size, 128)).to(device)
-        return self.netG(noise)
+        self.device = next(self.netG.parameters()).device
+        noises = torch.randn(self.n_data, 128).to(self.device)
+        images = []
+        for i in range(n_data//100):
+            images.append(self.netG(noises[(100*i):(100*i+100)]))
+        self.images = torch.cat(images, dim=0)
+
+    def __iter__(self):
+        # initialize and return self
+        self.cur = 0
+        return self
+
+    def __next__(self):
+        """
+        return a length-1 list to be consistent with DataLoader,
+        the element is a shape (batch_size, OUTPUT_DIM) tensor
+        """
+        if self.cur + self.batch_size <= self.n_data:
+            image_batch = self.images[self.cur:(self.cur+self.batch_size),:]
+            self.cur = self.cur + self.batch_size
+            return [image_batch]
+        else:
+            raise StopIteration
+
+    def load_state_dict(self, state_dict):
+        # load the noise
+        self.images = state_dict['images'].to(self.device)
+        self.n_data = self.images.shape[0]
+
+    def state_dict(self):
+        return {'images': self.images}

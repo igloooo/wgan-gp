@@ -36,10 +36,14 @@ CRITIC_ITERS = 5 # For WGAN and WGAN-GP, number of critic iters per gen iter
 LAMBDA = 10 # Gradient penalty lambda hyperparameter
 ITERS = 200000 # How many generator iterations to train for
 
+gt_path = 'tmp/mnist/checkpoints/iteration42999.pth'
+dump_folder = 'simu_mnist42999'
+
+
 lib.print_model_settings(locals().copy())
 
 
-def generate_image(frame, netG):
+def generate_image(folder, frame, netG):
     noise = torch.randn(BATCH_SIZE, 128)
     if use_cuda:
         noise = noise.cuda(gpu)
@@ -51,7 +55,7 @@ def generate_image(frame, netG):
 
     lib.save_images.save_images(
         samples,
-        'tmp/mnist/samples_{}.png'.format(frame)
+        'tmp/{}/images/samples_{}.png'.format(folder, frame)
     )
 
 def calc_gradient_penalty(netD, real_data, fake_data):
@@ -99,30 +103,44 @@ if use_cuda:
 
 # ============== dataloaders definition begin ======================
 # replace this section when you want to change a data set
-training_data = datasets.FashionMNIST(
-    'tmp/data',
-    train=True,
-    transform=ToTensor(),
-    download=True
-    )
-testing_data = datasets.FashionMNIST(
-    'tmp/data',
-    train=False,
-    transform=ToTensor(),
-    download=True
-)
+# training_data = datasets.FashionMNIST(
+#     'tmp/data',
+#     train=True,
+#     transform=ToTensor(),
+#     download=True
+#     )
+# testing_data = datasets.FashionMNIST(
+#     'tmp/data',
+#     train=False,
+#     transform=ToTensor(),
+#     download=True
+# )
 
-train_dataloader = DataLoader(training_data, BATCH_SIZE, shuffle=True)
-# testing data is for 
-test_dataloader = DataLoader(testing_data, 4*BATCH_SIZE, shuffle=True)
+# train_dataloader = DataLoader(training_data, BATCH_SIZE, shuffle=True)
+# # testing data is for 
+# test_dataloader = DataLoader(testing_data, 4*BATCH_SIZE, shuffle=True)
 
-# netG_gt = Generator()
-# gt_path = ''
-# gt_cp = torch.load(gt_path)
-# netG_gt.load_state_dict(gt_cp['p_g'])
+netG_gt = Generator()
+gt_cp = torch.load(gt_path)
+netG_gt.load_state_dict(gt_cp['p_g'])
+if use_cuda:
+    # move to device before defining dataset
+    netG_gt = netG_gt.cuda(gpu)
+netG_gt.requires_grad_(False)
 
-# train_dataloader = Dataset_from_GAN(netG_gt, BATCH_SIZE)
-# test_dataloader = Dataset_from_GAN(netG_gt, 4*BATCH_SIZE)
+train_dataloader = Dataset_from_GAN(netG_gt, BATCH_SIZE)
+test_dataloader = Dataset_from_GAN(netG_gt, 4*BATCH_SIZE)
+
+# load the data set
+# pass
+
+# save the data set
+print('saving training and testing dataset')
+datasets = {}
+datasets['train'] = train_dataloader.state_dict()
+datasets['test'] = test_dataloader.state_dict()
+torch.save(datasets, 'tmp/{}/checkpoints/datasets.pth'.format(dump_folder))
+print('datasets saved')
 # ============== dataloaders definition end ======================
 
 
@@ -191,10 +209,10 @@ for iteration in range(ITERS):
     netG.requires_grad_(False)
 
     # Write logs and save samples
-    lib.plot.plot('tmp/mnist/time', time.time() - start_time)
-    lib.plot.plot('tmp/mnist/train disc cost', D_cost.detach().cpu().numpy())
-    lib.plot.plot('tmp/mnist/train gen cost', G_cost.detach().cpu().numpy())
-    lib.plot.plot('tmp/mnist/Estimated W1 Distance', est_w1.detach().cpu().numpy())
+    lib.plot.plot('tmp/{}/time'.format(dump_folder), time.time() - start_time)
+    lib.plot.plot('tmp/{}/train disc cost'.format(dump_folder), D_cost.detach().cpu().numpy())
+    lib.plot.plot('tmp/{}/train gen cost'.format(dump_folder), G_cost.detach().cpu().numpy())
+    lib.plot.plot('tmp/{}/Estimated W1 Distance'.format(dump_folder), est_w1.detach().cpu().numpy())
 
     # Calculate disc loss on true data and generate samples every 100 iters
     if iteration % 100 == 99:
@@ -210,9 +228,9 @@ for iteration in range(ITERS):
             D = netD(imgs)
             _test_disc_cost = -D.mean().cpu().numpy()
             test_disc_costs.append(_test_disc_cost)
-        lib.plot.plot('tmp/mnist/test disc cost', np.mean(test_disc_costs))
+        lib.plot.plot('tmp/{}/test disc cost'.format(dump_folder), np.mean(test_disc_costs))
 
-        generate_image(iteration, netG)
+        generate_image(dump_folder, iteration, netG)
 
     # Write logs every 100 iters
     if (iteration < 5) or (iteration % 100 == 99):
@@ -229,7 +247,7 @@ for iteration in range(ITERS):
             'o_g': optimizerG.state_dict(),
             'o_d': optimizerD.state_dict()
         }
-        torch.save(checkpoint, 'tmp/mnist/checkpoints/cur.pth')
+        torch.save(checkpoint, 'tmp/{}/checkpoints/cur.pth'.format(dump_folder))
     
     # save checpoint without overwrite every 1000 iterations
     if iteration%1000 == 999:
@@ -240,4 +258,4 @@ for iteration in range(ITERS):
             'o_g': optimizerG.state_dict(),
             'o_d': optimizerD.state_dict()
         }
-        torch.save(checkpoint, 'tmp/mnist/checkpoints/iteration{}.pth'.format(iteration))
+        torch.save(checkpoint, 'tmp/{}/checkpoints/iteration{}.pth'.format(dump_folder, iteration))
